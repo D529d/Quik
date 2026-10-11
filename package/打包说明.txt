@@ -1,0 +1,73 @@
+========================================================================
+  打包说明
+========================================================================
+
+【最终成品位置】
+  D:\学生AI助手\             ← 绿色成品（免安装）
+  第一层就是「学生AI助手.exe」，双击即用；
+  模型放在同目录 models\ 下，程序自动识别，无需任何设置。
+
+  目录内容：
+    学生AI助手.exe          主程序（第一层，方便查找）
+    models\                 随包模型（主模型 5.0GB + 视觉编码器 0.95GB）
+    *.dll                   Qt 运行时 + llama.cpp 推理库 + VC++ 运行时
+    platforms\ sqldrivers\  必要的 Qt 插件（缺一不可）
+    imageformats\           图片解码（拍照识题读图用）
+    使用说明.txt            给最终用户的说明
+  合计 48 个文件、约 6.0 GB。
+
+【本目录（package）保留内容】
+  _build\stub.cs        自解压安装器源码（C#，流式解压版）
+  打包说明.txt          本文件
+  其余分发产物（含 6.3GB 的安装包 .dat、免安装 zip、绿色目录副本）
+  已清理以释放空间，需要时按下文可随时重新生成。
+
+【重新编译程序】
+  源码工程仍完整保留在项目根目录（src\ third_party\ CMakeLists.txt）。
+  powershell -ExecutionPolicy Bypass -File build.ps1
+  产物：build\Release\student_ai.exe
+  （编译依赖 tools\qt\6.8.0\msvc2022_64 这份 Qt 6.8.0，故 tools\ 未清理。）
+
+【重新生成绿色成品】
+  1) 建一个空目录，把 build\Release\student_ai.exe 拷进去并改名为
+     「学生AI助手.exe」，与 .dll 一起放在第一层。
+  2) 对新 exe 跑一次 windeployqt 补齐 Qt 运行时与 plugins 目录
+     （platforms\ sqldrivers\ imageformats\ 等）。
+  3) 补 VC++ 运行时：从
+     VS 安装目录\VC\Redist\MSVC\<版本>\x64\Microsoft.VC143.CRT 拷入所有 DLL。
+  4) 清掉多余的 ggml-cpu-*.dll 也可以，但建议全带：
+     程序启动时会按 CPU 指令集自动挑最高版本加载
+     （x64 → sse42 → sandybridge → haswell → alderlake → AVX512 系列），
+     老机器到新机器都能跑。
+  5) 把 *.gguf 放进 models\ 即完成。
+
+【重新生成安装包（自解压）】
+  1) 生成"相对根目录"的负载 zip（条目就是 学生AI助手.exe、models\... 本身）：
+     大文件必须用 Zip64；PowerShell 的 Compress-Archive 对大文件不稳定，
+     建议用 .NET：
+        $zip=[IO.Compression.ZipFile]::Open($path,'Create')
+        [IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+            $zip,$file,$rel,[IO.Compression.CompressionLevel]::NoCompression)
+  2) 编译安装器：
+        csc.exe /nologo /target:winexe /codepage:65001 /out:stub.exe
+            /r:System.Windows.Forms.dll /r:System.Drawing.dll
+            /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll
+            _build\stub.cs
+     csc 位置：C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe
+  3) 组装：
+     · 含模型（两文件）：stub.exe 命名成 学生AI助手_安装包.exe，
+       负载命名成同名的 学生AI助手_安装包.dat（安装器按同名 .dat 查找）
+     · 不含模型（单文件）：把负载追加到 exe 后面，再写 16 字节尾部
+       [Int64 负载长度][Int64 魔数 0x5341495041594C44]
+
+【两个已知坑】
+  · Windows 对可执行文件有 4GB 上限：给 exe 追加数据后总大小
+    2GB / 3.5GB 都能正常运行，到 5.93GB 时系统直接报"不是有效的应用程序"
+    （与安装器用什么语言写无关）。所以含模型的安装包只能是
+    「安装器 exe + 外部 .dat」两件套；负载小于 4GB 时才是真单文件。
+  · 组装大文件不要用 [IO.File]::ReadAllBytes（.NET 限制 <2GB），
+    要用流式 $src.CopyTo($dst, 1MB)。
+
+  安装器行为：流式解压（不把负载读进内存，实测 6GB 解压峰值内存仅 27MB），
+  不落地临时 zip；带一个参数时进入便携模式：
+      学生AI助手_安装包.exe "D:\某目录"   仅解压到该目录，不建快捷方式。
